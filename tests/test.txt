@@ -110,3 +110,63 @@
         when(actionInfo.isNoEligibleAction()).thenReturn(true);
         assertFalse(validationTask.in(message));
     }
+
+
+
+
+
+
+    @Test
+    void shouldBlockTransactionWhenAuthenticationRequired() {
+        when(riskResult.getMachineLearningResults()).thenReturn(Collections.singletonList(machineLearningResultSO));
+        when(machineLearningResultSO.isAuthenticationRequired()).thenReturn(true);
+        when(message.getContextDataObjects(ActionInfo.class, "actionInfo")).thenReturn(actionInfo);
+        when(actionInfo.isNoEligibleAction()).thenReturn(true);
+
+        boolean result = validationTask.blockTransaction(message, riskResult);
+
+        assertFalse(result);
+        verify(machineLearningResultSO).setMachineLearningAction(MachineLearningAction.BLOCK);
+        verify(message).replaceContextDataObject("riskResult", riskResult);
+    }
+
+    @Test
+    void shouldNotBlockTransactionWhenNoAuthenticationRequired() {
+        when(riskResult.getMachineLearningResults()).thenReturn(Collections.singletonList(machineLearningResultSO));
+        when(machineLearningResultSO.isAuthenticationRequired()).thenReturn(false);
+
+        boolean result = validationTask.blockTransaction(message, riskResult);
+
+        assertTrue(result);
+        verify(machineLearningResultSO, never()).setMachineLearningAction(MachineLearningAction.BLOCK);
+        verify(message, never()).replaceContextDataObject("riskResult", riskResult);
+    }
+
+    @Test
+    void shouldReturnTrueWhenNoMachineLearningResults() {
+        when(riskResult.getMachineLearningResults()).thenReturn(Collections.emptyList());
+
+        boolean result = validationTask.isAuthenticationRequired(riskResult);
+
+        assertFalse(result);
+    }
+
+    @Test
+    void shouldReturnTrueWhenMachineLearningResultsRequireAuthentication() {
+        when(riskResult.getMachineLearningResults()).thenReturn(Collections.singletonList(machineLearningResultSO));
+        when(machineLearningResultSO.isAuthenticationRequired()).thenReturn(true);
+
+        boolean result = validationTask.isAuthenticationRequired(riskResult);
+
+        assertTrue(result);
+    }
+
+    @Test
+    void shouldReturnFalseWhenMachineLearningResultsDoNotRequireAuthentication() {
+        when(riskResult.getMachineLearningResults()).thenReturn(Collections.singletonList(machineLearningResultSO));
+        when(machineLearningResultSO.isAuthenticationRequired()).thenReturn(false);
+
+        boolean result = validationTask.isAuthenticationRequired(riskResult);
+
+        assertFalse(result);
+    }
