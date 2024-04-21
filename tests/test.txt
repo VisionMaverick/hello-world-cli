@@ -1,0 +1,112 @@
+    private boolean isAuthenticationRequired(@CheckForNull DummyResult dummyResult) {
+        return Optional.ofNullable(dummyResult)
+                .map(DummyResult::getLearningResults)
+                .filter(learningResults -> !CollectionUtils.isEmpty(learningResults))
+                .map(learningResults -> learningResults.stream()
+                        .anyMatch(LearningResultSO::isAuthenticationRequired))
+                .orElse(false);
+    }
+
+
+    private boolean isAuthenticTransaction(Message message, DummyResult dummyResult) {
+        var actionInfo = message.getContextDataObjects(ActionInfo.class, "actionInfo");
+        if (actionInfo.isNoEligibleAction()) {
+            return blockTransaction(message, dummyResult);
+        }
+        return true;
+    }
+
+    private boolean blockTransaction(Message message, DummyResult dummyResult) {
+        return dummyResult.getLearningResults().stream()
+                .filter(LearningResultSO::isAuthenticationRequired)
+                .peek(learningResult -> {
+                    learningResult.setLearningAction(LearningAction.BLOCK);
+                    logEvent(message.getReferenceId());
+                    logExperimentationEvent(learningResult);
+                    message.replaceContextDataObject("dummyResult", dummyResult);
+                })
+                .count() == 0;
+    }
+
+
+    protected void logEvent(String referenceId) {
+        evaluationEvent.setReferenceId(referenceId);
+        evaluationEvent.setErrorDescription(ResponseCode.AUTHORIZATION_ERROR.getDescription());
+        evaluationEvent.log();
+    }
+
+    private void logExperimentationEvent(LearningResultSO learningResultSO) {
+        experiment.recordEvent(learningResultSO.getExperimentId(), learningResultSO);
+    }
+
+
+
+      @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+    }
+
+    @Test
+    void inShouldReturnTrueWhenValidationEnabled() throws Exception {
+        // Given
+        String referenceId = "testReferenceId";
+        lenient().when(message.getReferenceId()).thenReturn(referenceId);
+        when(message.getContextDataObjects(PaymentRequest.class,"paymentRequest"))
+                .thenReturn(new PaymentRequest("accountCode"));
+        lenient().when(featureDef.isEnable(anyString())).thenReturn(true);
+
+        // When
+        boolean result = validationTask.in(message);
+
+        // Then
+        assertTrue(result);
+        verify(evaluationEvent, never()).setReferenceId(referenceId);
+        verify(evaluationEvent, never()).setErrorDescription(ResponseCode.AUTHORIZATION_ERROR.getDescription());
+        verify(evaluationEvent, never()).log();
+    }
+
+    @Test
+    void inShouldReturnTrueWhenValidationDisabled() throws Exception {
+        when(message.getContextDataObjects(PaymentRequest.class, "paymentRequest")).thenReturn(paymentRequest);
+        when(paymentRequest.getAccoungCode()).thenReturn("accountCode");
+        lenient().when(featureDef.isEnable(anyString())).thenReturn(false);
+        assertTrue(validationTask.in(message));
+    }
+
+    @Test
+    void inShouldReturnTrueWhenNoAuthenticationRequired() throws Exception {
+        when(message.getContextDataObjects(PaymentRequest.class, "paymentRequest")).thenReturn(paymentRequest);
+        when(paymentRequest.getAccoungCode()).thenReturn("accountCode");
+        lenient().when(featureDef.isEnable(anyString())).thenReturn(true);
+        when(message.getContextDataObjects(DummyResult.class, "dummyResult")).thenReturn(dummyResult);
+        when(dummyResult.getLearningResults()).thenReturn(Collections.emptyList());
+
+        assertTrue(validationTask.in(message));
+    }
+
+    @Test
+    void inShouldReturnTrueWhenEligibleActionExists() throws Exception {
+        when(message.getContextDataObjects(PaymentRequest.class, "paymentRequest")).thenReturn(paymentRequest);
+        when(paymentRequest.getAccoungCode()).thenReturn("accountCode");
+        lenient().when(featureDef.isEnable(anyString())).thenReturn(true);
+        when(message.getContextDataObjects(DummyResult.class, "dummyResult")).thenReturn(dummyResult);
+        when(dummyResult.getLearningResults()).thenReturn(Collections.singletonList(learningResultSO));
+        when(learningResultSO.isAuthenticationRequired()).thenReturn(true);
+        when(message.getContextDataObjects(ActionInfo.class, "actionInfo")).thenReturn(actionInfo);
+        when(actionInfo.isNoEligibleAction()).thenReturn(false);
+
+        assertTrue(validationTask.in(message));
+    }
+
+    @Test
+    void inShouldReturnFalseWhenNoEligibleActionAndAuthenticationRequired() throws Exception {
+        when(message.getContextDataObjects(PaymentRequest.class, "paymentRequest")).thenReturn(paymentRequest);
+        when(paymentRequest.getAccoungCode()).thenReturn("accountCode");
+        lenient().when(featureDef.isEnable(anyString())).thenReturn(true);
+        when(message.getContextDataObjects(DummyResult.class, "dummyResult")).thenReturn(dummyResult);
+        when(dummyResult.getLearningResults()).thenReturn(Collections.singletonList(learningResultSO));
+        when(learningResultSO.isAuthenticationRequired()).thenReturn(true);
+        when(message.getContextDataObjects(ActionInfo.class, "actionInfo")).thenReturn(actionInfo);
+        when(actionInfo.isNoEligibleAction()).thenReturn(true);
+        assertFalse(validationTask.in(message));
+    }
