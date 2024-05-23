@@ -1,0 +1,83 @@
+One
+     Action:
+        Develop an RFC/ADR to design and build a generic framework for monitoring any migration activity, with the first target being the ongoing migration. Complete this by Q3.
+        Obtain access to work as a release manager by the end of this month.
+        Request and gain access to be part of the duty team within the next two weeks.
+
+     Note:
+        After moving from the BDP to XYZ's main project, my initial focus was understanding the functionality of the product and XYZ's main code base, design, and frameworks. I took responsibility for table partitioning in reliability. Going forward, I will ensure I follow up on all discussed actions and increase my involvement in the release process and incident management.
+
+     Action:
+        Identify functional/technical gaps in R team product lines and create an RFC/ADR each quarter, presenting these in Architecture or tech review meetings.
+        Develop detailed designs and basic frameworks, guiding engineers to deliver solutions for gaps identified in the previous quarter.
+        Complete the backstage RFC presentation by 12th June and finalize the pending work by end of June, then guide team members on data solutions.
+    Note:
+        Since joining the R team, I have created documents for table partitioning, RFC and PAM products, and ADR for r-b authentication. I will now plan to present these documents to a broader audience.
+
+    Action:
+        Document questions and concerns in shared documents for greater visibility.
+        Present these documented concerns and potential solutions in team meetings for more comprehensive feedback.
+    Note:
+        I have discussed requirements and gaps with the product manager, UX lead, and RP team members. I created and presented an RFC document to product and risk teams. Moving forward, I will include cross-team members for broader visibility.
+
+Two
+    Action:
+        Escalate to higher management if cross-team projects are delayed due to other teams, ensuring prompt resolution.
+        Set clear timelines and follow-ups to ensure project completion.
+    Note:
+        The database partitioning project took longer due to DBA and platform team dependencies. I highlighted this in our one-to-one discussions. I completed the r-b authentication project by the end of April despite the target being March-April.
+    Action:
+        Actively participate in technical conversations and provide feedback upfront, leveraging my better understanding of the product after working on three different projects in XYZ main.
+    Note:
+        I regularly discuss and debate requirements with the product manager and have organized meetings with the r team and product manager to clarify doubts. Going forward, I will include more cross-team members for comprehensive discussions.
+
+    Action:
+        Identify functional/technical gaps in R team product lines and create an RFC/ADR each quarter, presenting these in Architecture or tech review meetings.
+        Develop detailed designs and frameworks, guiding engineers to deliver solutions for gaps identified in the previous quarter.
+    Note:
+        My initial conversation with the r team lead identified two major pain points: database partitioning and hard-coded URLs in inter-service communication. Due to limited understanding and project priorities, I could not initiate cross-team efforts. I will focus more on these areas moving forward.
+
+Three
+    Action:
+        Highlight potential gaps or better solutions and propose them to management for adoption.
+        Guide team members and delegate work, taking accountability to achieve final goals.
+
+Four
+    Action:
+        Organize tech talks or similar discussions once a month, including members from different teams, to present solutions that our competitors or leading tech companies use and that can be beneficial for our organization.
+        Create a mentorship program within the team to guide less experienced engineers, providing regular check-ins and feedback sessions.
+    Action:
+        Be more assertive and use official channels to push back on projects if they are beyond scope, ensuring clear communication of impact on timelines and quality.
+        Implement a regular review process to assess current projects and identify any that need rescoping or re-prioritization.
+    Action:
+        Develop metrics and dashboards to track progress and impact, sharing these with the team and management regularly.
+        Provide weekly updates on project status, highlighting achievements, blockers, and next steps to ensure transparency and accountability.
+
+
+Thank you for outlining your expectations and observations. I appreciate your feedback and am committed to exceeding your expectations. Here’s my action plan to address the areas you highlighted:
+
+Scope & Ownership:
+    Develop a Generic Monitoring Framework: Complete RFC/ADR by Q3 for monitoring migration activities, starting with a-b migration.
+    Increased Involvement in Release Processes: Gain access to work as a release manager and join the duty team within two weeks.
+Multiplier Effect:
+    Identify Gaps and Present Solutions: Create and present RFC/ADR documents quarterly in architecture meetings.
+    Guide and Mentor Engineers: Finalize the backstage RFC by June and develop a mentorship program.
+Thought Leadership:
+    Document and Share Insights: Document questions and concerns in shared documents and present them in team meetings.
+    Broaden Audience for Presentations: Include cross-team members in presentations for wider visibility and feedback.
+Impact:
+    Escalate Delays Promptly: Escalate delays in cross-team projects to higher management.
+    Active Participation and Feedback: Engage actively in technical conversations, providing feedback based on my understanding of the product.
+Initiative and Proactivity:
+        Identify and Address Technical Gaps: Present quarterly RFC/ADR documents on identified gaps.
+        Focus on Reliability and Autonomy: Prioritize initiatives that enhance reliability and engineering autonomy.
+Technical Proficiency::
+    Highlight and Propose Solutions: Propose better solutions to management and guide team members in implementing them.
+    Coordinate and Delegate Effectively: Delegate tasks efficiently and ensure accountability for achieving final goals.
+Collaboration and Communication::
+    Inspire and Mentor: Organize monthly tech talks and create a mentorship program.
+    Challenge Appropriately: Use official channels to push back on projects beyond scope and re-prioritize tasks as needed.
+    Share Progress Transparently: Develop metrics and dashboards, providing weekly updates on project status.
+
+I believe these steps will help me exceed your expectations and contribute more effectively to our team’s success. Thank you for your guidance and support.
+
