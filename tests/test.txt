@@ -1,1 +1,60 @@
-virendra
+Merge vs Move (Transfer) Logic:
+        "Merge" should only occur if a verified strong identifier matches exactly.
+        Start with a rules-based engine that uses only strong identifiers for merges.
+        If data changes and no exact strong identifier match exists, identity should perform a "move" rather than merge.
+        Merges should be auditable, transparent, and reversible.
+        Deterministic Linking: Merge accounts only if they share ≥1 strong identifier.
+        Backfill existing identities using strong identifiers.
+
+Filter Placeholder Data
+    Implement regex-pattern based filters and blacklist known placeholders (e.g., emails: xyz@gmail.com, abc@xyz.com; phones: 1234567890).
+    Periodically update placeholder patterns based on analytics results.
+    When new or updated data arrives (e.g., phone, email, address), pass it through a validation & normalization pipeline.
+    Store it separately if we want to keep it for audit, but do not use it in the identity linking logic.
+
+Use a Graph Data Structure
+    Why Graph? Identities in many fraud/risk systems are essentially connected clusters of nodes (e.g., Account Holders, Legal Entities) joined by edges (common identifiers such as email, phone, address). Graph databases (or a graph-like data model on top of an RDBMS) help model these links naturally.
+    Each Account Holder or Legal Entity is a node in the graph.
+    By defining Identity based on 'strong', active, non-placeholder, non-overused links, we ensure connections are meaningful and precise. Signal propagation follows these strong paths. Manual investigators can query the graph to see exactly which strong identifiers link entities.
+    Each Identifier (email, phone, address, bank account) is either:
+        A separate identifier node, or
+        An edge attribute capturing the linking info between two nodes.
+Atomic Linking + Confidence Edges
+    Each time an Account Holder or Legal Entity is connected to an identifier, store it as an atomic link with metadata (timestamp, source, etc.).
+    If you need an even more advanced approach, treat each potential link (AH ↔ identifier ↔ AH) as an edge with a confidence score that you calculate from data sources, recency, and trust level.
+
+Display Active and Historical Identifiers
+    For each Account Holder, show the identifiers (with timestamps) that caused the link.
+    Add identity_history table linking account holders to past identifiers.
+    Enhance UI with a "Linkage Details" section showing historical data.
+    If the identity link is based on an older address or phone number, highlight that explicitly:
+        Linked via Address: “123 Main St.” (previously on file from 2023-01-01 to 2023-02-15)
+
+Core Concepts:
+
+    Nodes:
+        AccountHolder: Represents a unique account holder instance from a source system. Contains core attributes excluding linking identifiers. Has a unique internal ID.
+        IdentifierValue: Represents a specific identifier instance (e.g., "john.doe@email.com", "1234567890", "BANKACC123"). Contains the value and type (email, phone, bank_account, address_hash, etc.).
+    Edges (Relationships):
+        ACCOUNT_HAS_IDENTIFIER: Connects an AccountHolder node to an IdentifierValue node. This is the fundamental relationship.
+        ACCOUNT_HAS_IDENTIFIER: Directed edge connecting AccountHolder -> IdentifierValue. This represents the assertion that an account holder possessed a specific identifier during a time window.
+            Properties:
+                identifier_type: (e.g., 'email', 'phone', 'bank_account', 'device_id', 'address_hash')
+                strength: ('strong', 'medium', 'weak') - Defined by business rules/configuration.
+                start_timestamp: When this association became active.
+                end_timestamp: (Nullable) When this association ceased to be active (due to data update).
+                source_system: Where this data originated.
+                is_placeholder: (Boolean) Flagged by the placeholder detection mechanism.
+                is_overused: (Boolean) Flagged if the IdentifierValue node connects to too many distinct AccountHolder nodes.Flagged if the IdentifierValue node connects to > N distinct AccountHolder nodes (threshold N is configurable).
+    Identity Definition (Dynamic & Configurable):
+        An "Identity" is no longer a single, monolithic merged record.
+        It's defined as a connected component within the graph, formed by traversing specific types of edges.
+        Connect AccountHolder nodes if they share an active (end_timestamp is null), non-placeholder (is_placeholder=false), non-overused (is_overused=false) link (ACCOUNT_HAS_IDENTIFIER edge) to the same IdentifierValue node, where the link's strength is 'strong'.
+        The component is formed by AccountHolder nodes linked through shared IdentifierValue nodes via ACCOUNT_HAS_IDENTIFIER edges that meet specific, configurable criteria.
+        Crucially, the rules for traversing determine the identity boundary. The primary rule would be: Connect AccountHolder nodes that share at least one IdentifierValue node via an ACCOUNT_HAS_IDENTIFIER edge where strength = 'strong', is_placeholder = false, is_overused = false, and the edge is currently active (end_timestamp is null).
+
+    Data Update: If an AccountHolder's email changes from A to B:
+        Find the ACCOUNT_HAS_IDENTIFIER edge connecting AccountHolder -> IdentifierValue(A).
+        Set its end_timestamp to the current time.
+        Create a new ACCOUNT_HAS_IDENTIFIER edge AccountHolder -> IdentifierValue(B) with start_timestamp = current time.
+    Correction: If a link is found to be incorrect (e.g., bad data source), mark the corresponding ACCOUNT_HAS_IDENTIFIER edge as invalid (e.g., set end_timestamp retroactively or add an is_invalid flag) and potentially trigger a recalculation of affected identity components.
