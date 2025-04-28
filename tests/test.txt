@@ -1,60 +1,1989 @@
-Merge vs Move (Transfer) Logic:
-        "Merge" should only occur if a verified strong identifier matches exactly.
-        Start with a rules-based engine that uses only strong identifiers for merges.
-        If data changes and no exact strong identifier match exists, identity should perform a "move" rather than merge.
-        Merges should be auditable, transparent, and reversible.
-        Deterministic Linking: Merge accounts only if they share ≥1 strong identifier.
-        Backfill existing identities using strong identifiers.
+classDiagram
+    class IdentityController {
+        +createIdentity()
+        +mergeIdentities()
+        +transferAccounts()
+        +getIdentityGraph()
+        +getLinkageEvidence()
+    }
+    
+    class IdentityService {
+        +createIdentity()
+        +findIdentity()
+        +mergeIdentities()
+        +transferAccounts()
+        +getIdentityGraph()
+        +getLinkageEvidence()
+    }
+    
+    class IdentifierService {
+        +classifyIdentifier()
+        +validateIdentifier()
+        +isPlaceholder()
+        +normalizeIdentifier()
+    }
+    
+    class DataQualityService {
+        +preprocessData()
+        +validatePattern()
+        +checkExclusionList()
+        +analyzeFrequency()
+    }
+    
+    class LinkingEngine {
+        +findPotentialLinks()
+        +evaluateLinkStrength()
+        +createLinkEvidence()
+    }
+    
+    class IdentityRepository {
+        +save()
+        +findById()
+        +findByAccountHolder()
+        +findByIdentifier()
+    }
+    
+    class AccountHolderRepository {
+        +save()
+        +findById()
+        +findByIdentifier()
+    }
+    
+    class IdentifierRepository {
+        +save()
+        +findById()
+        +findByValue()
+        +findByType()
+    }
+    
+    class LinkEvidenceRepository {
+        +save()
+        +findByIdentityId()
+        +findByAccountHolderId()
+    }
+    
+    class ExclusionListRepository {
+        +save()
+        +findByPattern()
+        +findByIdentifierType()
+    }
+    
+    IdentityController --> IdentityService
+    IdentityService --> IdentifierService
+    IdentityService --> DataQualityService
+    IdentityService --> LinkingEngine
+    IdentityService --> IdentityRepository
+    
+    LinkingEngine --> IdentifierService
+    LinkingEngine --> LinkEvidenceRepository
+    
+    DataQualityService --> ExclusionListRepository
+    DataQualityService --> IdentifierRepository
+    
+    IdentityRepository --> AccountHolderRepository
+    IdentifierService --> IdentifierRepository
 
-Filter Placeholder Data
-    Implement regex-pattern based filters and blacklist known placeholders (e.g., emails: xyz@gmail.com, abc@xyz.com; phones: 1234567890).
-    Periodically update placeholder patterns based on analytics results.
-    When new or updated data arrives (e.g., phone, email, address), pass it through a validation & normalization pipeline.
-    Store it separately if we want to keep it for audit, but do not use it in the identity linking logic.
 
-Use a Graph Data Structure
-    Why Graph? Identities in many fraud/risk systems are essentially connected clusters of nodes (e.g., Account Holders, Legal Entities) joined by edges (common identifiers such as email, phone, address). Graph databases (or a graph-like data model on top of an RDBMS) help model these links naturally.
-    Each Account Holder or Legal Entity is a node in the graph.
-    By defining Identity based on 'strong', active, non-placeholder, non-overused links, we ensure connections are meaningful and precise. Signal propagation follows these strong paths. Manual investigators can query the graph to see exactly which strong identifiers link entities.
-    Each Identifier (email, phone, address, bank account) is either:
-        A separate identifier node, or
-        An edge attribute capturing the linking info between two nodes.
-Atomic Linking + Confidence Edges
-    Each time an Account Holder or Legal Entity is connected to an identifier, store it as an atomic link with metadata (timestamp, source, etc.).
-    If you need an even more advanced approach, treat each potential link (AH ↔ identifier ↔ AH) as an edge with a confidence score that you calculate from data sources, recency, and trust level.
 
-Display Active and Historical Identifiers
-    For each Account Holder, show the identifiers (with timestamps) that caused the link.
-    Add identity_history table linking account holders to past identifiers.
-    Enhance UI with a "Linkage Details" section showing historical data.
-    If the identity link is based on an older address or phone number, highlight that explicitly:
-        Linked via Address: “123 Main St.” (previously on file from 2023-01-01 to 2023-02-15)
+erDiagram
+    IDENTITY ||--o{ ACCOUNT_HOLDER : contains
+    IDENTITY ||--o{ LINK_EVIDENCE : has
+    ACCOUNT_HOLDER ||--o{ IDENTIFIER : has
+    IDENTITY_HISTORY ||--o{ IDENTITY : tracks
+    LINK_EVIDENCE }|--|| IDENTIFIER : based_on
+    EXCLUSION_LIST }|--|| IDENTIFIER_TYPE : applies_to
+    
+    IDENTITY {
+        uuid id PK
+        timestamp created_at
+        timestamp updated_at
+        int size
+        boolean active
+    }
+    
+    ACCOUNT_HOLDER {
+        uuid id PK
+        uuid identity_id FK
+        string external_id
+        timestamp created_at
+        timestamp updated_at
+        boolean active
+    }
+    
+    IDENTIFIER {
+        uuid id PK
+        uuid account_holder_id FK
+        string value
+        string normalized_value
+        string type
+        int tier
+        float confidence_score
+        timestamp created_at
+        timestamp updated_at
+        boolean active
+    }
+    
+    LINK_EVIDENCE {
+        uuid id PK
+        uuid source_ah_id FK
+        uuid target_ah_id FK
+        uuid identity_id FK
+        uuid identifier_id FK
+        string operation
+        timestamp created_at
+        float strength
+        string evidence_type
+    }
+    
+    IDENTITY_HISTORY {
+        uuid id PK
+        uuid identity_id FK
+        string operation
+        timestamp created_at
+        string details
+        uuid performed_by
+    }
+    
+    EXCLUSION_LIST {
+        uuid id PK
+        string pattern
+        string value
+        string identifier_type
+        boolean is_regex
+        boolean is_dynamic
+        timestamp created_at
+        timestamp updated_at
+    }
 
-Core Concepts:
+    IDENTIFIER_TYPE {
+        string type PK
+        int tier
+        float base_confidence
+        boolean requires_normalization
+        string validation_pattern
+    }
 
-    Nodes:
-        AccountHolder: Represents a unique account holder instance from a source system. Contains core attributes excluding linking identifiers. Has a unique internal ID.
-        IdentifierValue: Represents a specific identifier instance (e.g., "john.doe@email.com", "1234567890", "BANKACC123"). Contains the value and type (email, phone, bank_account, address_hash, etc.).
-    Edges (Relationships):
-        ACCOUNT_HAS_IDENTIFIER: Connects an AccountHolder node to an IdentifierValue node. This is the fundamental relationship.
-        ACCOUNT_HAS_IDENTIFIER: Directed edge connecting AccountHolder -> IdentifierValue. This represents the assertion that an account holder possessed a specific identifier during a time window.
-            Properties:
-                identifier_type: (e.g., 'email', 'phone', 'bank_account', 'device_id', 'address_hash')
-                strength: ('strong', 'medium', 'weak') - Defined by business rules/configuration.
-                start_timestamp: When this association became active.
-                end_timestamp: (Nullable) When this association ceased to be active (due to data update).
-                source_system: Where this data originated.
-                is_placeholder: (Boolean) Flagged by the placeholder detection mechanism.
-                is_overused: (Boolean) Flagged if the IdentifierValue node connects to too many distinct AccountHolder nodes.Flagged if the IdentifierValue node connects to > N distinct AccountHolder nodes (threshold N is configurable).
-    Identity Definition (Dynamic & Configurable):
-        An "Identity" is no longer a single, monolithic merged record.
-        It's defined as a connected component within the graph, formed by traversing specific types of edges.
-        Connect AccountHolder nodes if they share an active (end_timestamp is null), non-placeholder (is_placeholder=false), non-overused (is_overused=false) link (ACCOUNT_HAS_IDENTIFIER edge) to the same IdentifierValue node, where the link's strength is 'strong'.
-        The component is formed by AccountHolder nodes linked through shared IdentifierValue nodes via ACCOUNT_HAS_IDENTIFIER edges that meet specific, configurable criteria.
-        Crucially, the rules for traversing determine the identity boundary. The primary rule would be: Connect AccountHolder nodes that share at least one IdentifierValue node via an ACCOUNT_HAS_IDENTIFIER edge where strength = 'strong', is_placeholder = false, is_overused = false, and the edge is currently active (end_timestamp is null).
 
-    Data Update: If an AccountHolder's email changes from A to B:
-        Find the ACCOUNT_HAS_IDENTIFIER edge connecting AccountHolder -> IdentifierValue(A).
-        Set its end_timestamp to the current time.
-        Create a new ACCOUNT_HAS_IDENTIFIER edge AccountHolder -> IdentifierValue(B) with start_timestamp = current time.
-    Correction: If a link is found to be incorrect (e.g., bad data source), mark the corresponding ACCOUNT_HAS_IDENTIFIER edge as invalid (e.g., set end_timestamp retroactively or add an is_invalid flag) and potentially trigger a recalculation of affected identity components.
+// Enums for identifier types and tiers
+package com.identity.model.enums;
+
+public enum IdentifierTier {
+    TIER_1(1, "Strongest identifiers"),
+    TIER_2(2, "Strong identifiers"),
+    TIER_3(3, "Medium-strength identifiers"),
+    TIER_4(4, "Weak identifiers");
+    
+    private final int level;
+    private final String description;
+    
+    IdentifierTier(int level, String description) {
+        this.level = level;
+        this.description = description;
+    }
+    
+    public int getLevel() {
+        return level;
+    }
+    
+    public String getDescription() {
+        return description;
+    }
+}
+
+package com.identity.model.enums;
+
+public enum IdentifierType {
+    TAX_ID("Tax Identification Number", IdentifierTier.TIER_1),
+    BANK_ACCOUNT("Bank Account Number", IdentifierTier.TIER_1),
+    GOVERNMENT_ID("Government ID", IdentifierTier.TIER_1),
+    EMAIL("Email Address", IdentifierTier.TIER_2),
+    PHONE("Phone Number", IdentifierTier.TIER_2),
+    DEVICE_ID("Device ID", IdentifierTier.TIER_2),
+    FULL_NAME_DOB("Full Name and DOB", IdentifierTier.TIER_3),
+    FULL_ADDRESS("Complete Address", IdentifierTier.TIER_3),
+    PARTIAL_NAME("Partial Name", IdentifierTier.TIER_4),
+    IP_ADDRESS("IP Address", IdentifierTier.TIER_4);
+    
+    private final String description;
+    private final IdentifierTier tier;
+    
+    IdentifierType(String description, IdentifierTier tier) {
+        this.description = description;
+        this.tier = tier;
+    }
+    
+    public String getDescription() {
+        return description;
+    }
+    
+    public IdentifierTier getTier() {
+        return tier;
+    }
+}
+
+// Model classes
+package com.identity.model;
+
+import com.identity.model.enums.IdentifierType;
+import lombok.Data;
+import lombok.Builder;
+
+import javax.persistence.*;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Data
+@Builder
+@Entity
+@Table(name = "identifier")
+public class Identifier {
+    @Id
+    @GeneratedValue
+    private UUID id;
+    
+    @Column(name = "account_holder_id")
+    private UUID accountHolderId;
+    
+    @Column(name = "value")
+    private String value;
+    
+    @Column(name = "normalized_value")
+    private String normalizedValue;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(name = "type")
+    private IdentifierType type;
+    
+    @Column(name = "tier")
+    private int tier;
+    
+    @Column(name = "confidence_score")
+    private float confidenceScore;
+    
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+    
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+    
+    @Column(name = "active")
+    private boolean active;
+}
+
+// Service interfaces
+package com.identity.service;
+
+import com.identity.model.Identifier;
+import com.identity.model.enums.IdentifierType;
+
+public interface IdentifierService {
+    Identifier classifyIdentifier(String value, IdentifierType type);
+    boolean validateIdentifier(Identifier identifier);
+    boolean isPlaceholder(Identifier identifier);
+    String normalizeIdentifier(String value, IdentifierType type);
+    float calculateConfidenceScore(Identifier identifier);
+    IdentifierType detectIdentifierType(String value);
+}
+
+// Service implementation
+package com.identity.service.impl;
+
+import com.identity.model.Identifier;
+import com.identity.model.enums.IdentifierType;
+import com.identity.repository.ExclusionListRepository;
+import com.identity.repository.IdentifierRepository;
+import com.identity.service.IdentifierService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+@Service
+public class IdentifierServiceImpl implements IdentifierService {
+    
+    @Autowired
+    private IdentifierRepository identifierRepository;
+    
+    @Autowired
+    private ExclusionListRepository exclusionListRepository;
+    
+    private final Map<IdentifierType, Pattern> validationPatterns;
+    
+    public IdentifierServiceImpl() {
+        validationPatterns = new HashMap<>();
+        // Initialize validation patterns for each identifier type
+        validationPatterns.put(IdentifierType.EMAIL, 
+            Pattern.compile("^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,7}$"));
+        validationPatterns.put(IdentifierType.PHONE, 
+            Pattern.compile("^\\+?[1-9]\\d{1,14}$")); // E.164 format
+        // Add more patterns for other identifier types
+    }
+    
+    @Override
+    public Identifier classifyIdentifier(String value, IdentifierType type) {
+        String normalizedValue = normalizeIdentifier(value, type);
+        float confidenceScore = calculateConfidenceScore(
+            Identifier.builder()
+                .value(value)
+                .normalizedValue(normalizedValue)
+                .type(type)
+                .tier(type.getTier().getLevel())
+                .build()
+        );
+        
+        return Identifier.builder()
+                .value(value)
+                .normalizedValue(normalizedValue)
+                .type(type)
+                .tier(type.getTier().getLevel())
+                .confidenceScore(confidenceScore)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .active(true)
+                .build();
+    }
+    
+    @Override
+    public boolean validateIdentifier(Identifier identifier) {
+        if (identifier.getValue() == null || identifier.getValue().isEmpty()) {
+            return false;
+        }
+        
+        // Check against validation pattern
+        Pattern pattern = validationPatterns.get(identifier.getType());
+        if (pattern != null && !pattern.matcher(identifier.getValue()).matches()) {
+            return false;
+        }
+        
+        // Check if it's a placeholder
+        if (isPlaceholder(identifier)) {
+            return false;
+        }
+        
+        // Additional validation logic based on identifier type
+        switch (identifier.getType()) {
+            case TAX_ID:
+                return validateTaxId(identifier.getValue());
+            case BANK_ACCOUNT:
+                return validateBankAccount(identifier.getValue());
+            // Add cases for other identifier types
+            default:
+                return true;
+        }
+    }
+    
+    @Override
+    public boolean isPlaceholder(Identifier identifier) {
+        // Check against exclusion list
+        boolean isExcluded = exclusionListRepository.existsByPatternAndIdentifierType(
+            identifier.getNormalizedValue(), 
+            identifier.getType().toString()
+        );
+        
+        if (isExcluded) {
+            return true;
+        }
+        
+        // Check common placeholder patterns
+        switch (identifier.getType()) {
+            case EMAIL:
+                return isPlaceholderEmail(identifier.getValue());
+            case PHONE:
+                return isPlaceholderPhone(identifier.getValue());
+            // Add cases for other identifier types
+            default:
+                return false;
+        }
+    }
+    
+    @Override
+    public String normalizeIdentifier(String value, IdentifierType type) {
+        if (value == null) {
+            return null;
+        }
+        
+        switch (type) {
+            case EMAIL:
+                return value.toLowerCase().trim();
+            case PHONE:
+                // Remove all non-digit characters and ensure E.164 format
+                return normalizePhoneNumber(value);
+            case FULL_ADDRESS:
+                return normalizeAddress(value);
+            // Add cases for other identifier types
+            default:
+                return value.trim();
+        }
+    }
+    
+    @Override
+    public float calculateConfidenceScore(Identifier identifier) {
+        float baseConfidence = getBaseConfidenceForTier(identifier.getTier());
+        
+        // Apply adjustments based on various factors
+        if (isCommonValue(identifier)) {
+            baseConfidence *= 0.7f;
+        }
+        
+        if (identifier.getType() == IdentifierType.EMAIL && 
+            isDisposableEmailDomain(identifier.getValue())) {
+            baseConfidence *= 0.8f;
+        }
+        
+        // More adjustments based on data quality, frequency analysis, etc.
+        
+        return Math.min(1.0f, Math.max(0.1f, baseConfidence));
+    }
+    
+    @Override
+    public IdentifierType detectIdentifierType(String value) {
+        // Attempt to automatically detect identifier type based on pattern
+        if (validationPatterns.get(IdentifierType.EMAIL).matcher(value).matches()) {
+            return IdentifierType.EMAIL;
+        }
+        if (validationPatterns.get(IdentifierType.PHONE).matcher(value).matches()) {
+            return IdentifierType.PHONE;
+        }
+        // Add more type detection logic
+        
+        return null; // Unable to detect type automatically
+    }
+    
+    // Helper methods
+    private boolean validateTaxId(String taxId) {
+        // Implement tax ID validation logic
+        return true;
+    }
+    
+    private boolean validateBankAccount(String accountNumber) {
+        // Implement bank account validation logic
+        return true;
+    }
+    
+    private boolean isPlaceholderEmail(String email) {
+        // Check for common placeholder emails
+        String lowerEmail = email.toLowerCase();
+        return lowerEmail.startsWith("test@") || 
+               lowerEmail.equals("xyz@gmail.com") || 
+               lowerEmail.equals("abc@xyz.com") ||
+               lowerEmail.matches(".*\\d{4,}@.*") || // Emails with 4+ consecutive digits
+               lowerEmail.startsWith("user") && lowerEmail.matches("user\\d+@.*");
+    }
+    
+    private boolean isPlaceholderPhone(String phone) {
+        // Check for common placeholder phone numbers
+        String digitsOnly = phone.replaceAll("\\D", "");
+        return digitsOnly.matches("1{5,}") || // 11111...
+               digitsOnly.matches("0{5,}") || // 00000...
+               digitsOnly.matches("1234.*") || // 1234...
+               digitsOnly.equals("1234567890") ||
+               digitsOnly.matches("(\\d)\\1{4,}"); // Same digit repeated 5+ times
+    }
+    
+    private String normalizePhoneNumber(String phone) {
+        // Remove all non-digit characters
+        String digitsOnly = phone.replaceAll("\\D", "");
+        
+        // Ensure E.164 format
+        if (digitsOnly.startsWith("00")) {
+            digitsOnly = "+" + digitsOnly.substring(2);
+        } else if (!digitsOnly.startsWith("+")) {
+            // Apply default country code if needed
+            // This is a simplified example
+            digitsOnly = "+1" + digitsOnly;
+        }
+        
+        return digitsOnly;
+    }
+    
+    private String normalizeAddress(String address) {
+        // Address normalization logic
+        return address.toLowerCase().trim().replaceAll("\\s+", " ");
+    }
+    
+    private float getBaseConfidenceForTier(int tier) {
+        switch (tier) {
+            case 1: return 0.95f;
+            case 2: return 0.80f;
+            case 3: return 0.60f;
+            case 4: return 0.30f;
+            default: return 0.50f;
+        }
+    }
+    
+    private boolean isCommonValue(Identifier identifier) {
+        // Check if this value appears frequently across different account holders
+        long count = identifierRepository.countByNormalizedValueAndType(
+            identifier.getNormalizedValue(), 
+            identifier.getType()
+        );
+        
+        // If this value appears more than X times, consider it common
+        return count > 10;
+    }
+    
+    private boolean isDisposableEmailDomain(String email) {
+        // Check if email domain is from a disposable email service
+        String domain = email.substring(email.indexOf('@') + 1).toLowerCase();
+        // This would be implemented with a list of known disposable email domains
+        String[] disposableDomains = {"tempmail.com", "guerrillamail.com", "mailinator.com"};
+        
+        for (String disposableDomain : disposableDomains) {
+            if (domain.equals(disposableDomain)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+}
+
+
+
+
+
+package com.identity.service;
+
+import com.identity.model.Identifier;
+import com.identity.model.enums.IdentifierType;
+
+import java.util.Map;
+
+public interface DataQualityService {
+    Map<String, Object> preprocessData(Map<String, Object> rawData);
+    boolean validatePattern(String value, IdentifierType type);
+    boolean checkExclusionList(String value, IdentifierType type);
+    float analyzeFrequency(String value, IdentifierType type);
+    boolean isAnomalous(Identifier identifier);
+}
+
+package com.identity.service.impl;
+
+import com.identity.model.Identifier;
+import com.identity.model.enums.IdentifierType;
+import com.identity.repository.ExclusionListRepository;
+import com.identity.repository.IdentifierRepository;
+import com.identity.service.DataQualityService;
+import com.identity.service.IdentifierService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+@Service
+public class DataQualityServiceImpl implements DataQualityService {
+    
+    @Autowired
+    private IdentifierRepository identifierRepository;
+    
+    @Autowired
+    private ExclusionListRepository exclusionListRepository;
+    
+    @Autowired
+    private IdentifierService identifierService;
+    
+    private final Map<IdentifierType, Map<String, Pattern>> validationPatterns;
+    
+    public DataQualityServiceImpl() {
+        validationPatterns = new HashMap<>();
+        
+        // Initialize email patterns
+        Map<String, Pattern> emailPatterns = new HashMap<>();
+        emailPatterns.put("valid", Pattern.compile("^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,7}$"));
+        emailPatterns.put("placeholder", Pattern.compile("^(test|user|admin|info|example|dummy)@.*$"));
+        validationPatterns.put(IdentifierType.EMAIL, emailPatterns);
+        
+        // Initialize phone patterns
+        Map<String, Pattern> phonePatterns = new HashMap<>();
+        phonePatterns.put("valid", Pattern.compile("^\\+?[1-9]\\d{1,14}$")); // E.164 format
+        phonePatterns.put("placeholder", Pattern.compile("^(1{5,}|0{5,}|123.*|9{5,})$"));
+        validationPatterns.put(IdentifierType.PHONE, phonePatterns);
+        
+        // Add more patterns for other identifier types
+    }
+    
+    @Override
+    public Map<String, Object> preprocessData(Map<String, Object> rawData) {
+        Map<String, Object> processedData = new HashMap<>();
+        
+        for (Map.Entry<String, Object> entry : rawData.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            
+            if (value instanceof String) {
+                String stringValue = (String) value;
+                
+                // Try to detect identifier type
+                IdentifierType detectedType = identifierService.detectIdentifierType(stringValue);
+                
+                if (detectedType != null) {
+                    // Normalize based on detected type
+                    String normalizedValue = identifierService.normalizeIdentifier(stringValue, detectedType);
+                    processedData.put(key, normalizedValue);
+                } else {
+                    // Simple string cleaning if type can't be detected
+                    processedData.put(key, stringValue.trim());
+                }
+            } else {
+                // Pass through non-string values
+                processedData.put(key, value);
+            }
+        }
+        
+        return processedData;
+    }
+    
+    @Override
+    public boolean validatePattern(String value, IdentifierType type) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        
+        Map<String, Pattern> patterns = validationPatterns.get(type);
+        if (patterns != null && patterns.containsKey("valid")) {
+            return patterns.get("valid").matcher(value).matches();
+        }
+        
+        // Default to true if no pattern is defined for this type
+        return true;
+    }
+    
+    @Override
+    public boolean checkExclusionList(String value, IdentifierType type) {
+        // Check static exclusion list in database
+        boolean isExcluded = exclusionListRepository.existsByValueAndIdentifierTypeAndIsRegexFalse(
+            value, 
+            type.toString()
+        );
+        
+        if (isExcluded) {
+            return true;
+        }
+        
+        // Check regex patterns in exclusion list
+        boolean matchesRegex = exclusionListRepository.findByIdentifierTypeAndIsRegexTrue(type.toString())
+            .stream()
+            .anyMatch(exclusion -> Pattern.compile(exclusion.getPattern()).matcher(value).matches());
+        
+        if (matchesRegex) {
+            return true;
+        }
+        
+        // Check common placeholder patterns
+        Map<String, Pattern> patterns = validationPatterns.get(type);
+        if (patterns != null && patterns.containsKey("placeholder")) {
+            return patterns.get("placeholder").matcher(value).matches();
+        }
+        
+        return false;
+    }
+    
+    @Override
+    public float analyzeFrequency(String value, IdentifierType type) {
+        // Count how many times this identifier appears across different account holders
+        long count = identifierRepository.countByNormalizedValueAndType(value, type);
+        
+        // Define thresholds based on identifier type
+        long anomalyThreshold = getAnomalyThresholdForType(type);
+        
+        // Calculate frequency score (0.0 - 1.0)
+        // Higher score means more unique (desirable)
+        if (count <= 1) {
+            return 1.0f; // Perfectly unique
+        } else if (count >= anomalyThreshold) {
+            return 0.0f; // Definitely an anomaly
+        } else {
+            // Linear scale between uniqueness and anomaly threshold
+            return 1.0f - ((float) count / anomalyThreshold);
+        }
+    }
+    
+    @Override
+    public boolean isAnomalous(Identifier identifier) {
+        // Check frequency analysis
+        float frequencyScore = analyzeFrequency(
+            identifier.getNormalizedValue(), 
+            identifier.getType()
+        );
+        
+        // Define threshold based on tier
+        float anomalyThreshold = 0.2f; // Default
+        
+        switch (identifier.getTier()) {
+            case 1: anomalyThreshold = 0.1f; break; // Tier 1 should be highly unique
+            case 2: anomalyThreshold = 0.2f; break;
+            case 3: anomalyThreshold = 0.3f; break;
+            case 4: anomalyThreshold = 0.5f; break; // Tier 4 can be less unique
+        }
+        
+        return frequencyScore < anomalyThreshold;
+    }
+    
+    // Helper methods
+    private long getAnomalyThresholdForType(IdentifierType type) {
+        switch (type) {
+            case TAX_ID:
+            case BANK_ACCOUNT:
+            case GOVERNMENT_ID:
+                return 5; // These should be highly unique
+            case EMAIL:
+            case PHONE:
+                return 20; // These can be shared but not too widely
+            case DEVICE_ID:
+                return 10;
+            case FULL_NAME_DOB:
+            case FULL_ADDRESS:
+                return 50; // Common names/addresses can legitimately occur more often
+            case PARTIAL_NAME:
+            case IP_ADDRESS:
+                return 100; // These are expected to be less unique
+            default:
+                return 25;
+        }
+    }
+}
+
+package com.identity.model;
+
+import lombok.Data;
+import lombok.Builder;
+
+import javax.persistence.*;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Data
+@Builder
+@Entity
+@Table(name = "exclusion_list")
+public class ExclusionList {
+    @Id
+    @GeneratedValue
+    private UUID id;
+    
+    @Column(name = "pattern")
+    private String pattern;
+    
+    @Column(name = "value")
+    private String value;
+    
+    @Column(name = "identifier_type")
+    private String identifierType;
+    
+    @Column(name = "is_regex")
+    private boolean isRegex;
+    
+    @Column(name = "is_dynamic")
+    private boolean isDynamic;
+    
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+    
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+}
+
+package com.identity.repository;
+
+import com.identity.model.ExclusionList;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public interface ExclusionListRepository extends JpaRepository<ExclusionList, UUID> {
+    boolean existsByPatternAndIdentifierType(String pattern, String identifierType);
+    boolean existsByValueAndIdentifierTypeAndIsRegexFalse(String value, String identifierType);
+    List<ExclusionList> findByIdentifierTypeAndIsRegexTrue(String identifierType);
+}
+
+
+
+package com.identity.service;
+
+import com.identity.model.AccountHolder;
+import com.identity.model.Identity;
+import com.identity.model.LinkEvidence;
+
+import java.util.List;
+import java.util.UUID;
+
+public interface LinkingEngine {
+    List<AccountHolder> findPotentialLinks(AccountHolder accountHolder);
+    float evaluateLinkStrength(AccountHolder source, AccountHolder target);
+    List<LinkEvidence> createLinkEvidence(AccountHolder source, AccountHolder target, Identity identity);
+    boolean shouldMerge(AccountHolder source, AccountHolder target);
+    boolean shouldTransfer(AccountHolder source, Identity sourceIdentity, Identity targetIdentity);
+}
+
+package com.identity.service.impl;
+
+import com.identity.model.AccountHolder;
+import com.identity.model.Identity;
+import com.identity.model.Identifier;
+import com.identity.model.LinkEvidence;
+import com.identity.model.enums.IdentifierTier;
+import com.identity.model.enums.IdentifierType;
+import com.identity.repository.AccountHolderRepository;
+import com.identity.repository.IdentifierRepository;
+import com.identity.repository.LinkEvidenceRepository;
+import com.identity.service.DataQualityService;
+import com.identity.service.IdentifierService;
+import com.identity.service.LinkingEngine;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+public class LinkingEngineImpl implements LinkingEngine {
+    
+    @Autowired
+    private AccountHolderRepository accountHolderRepository;
+    
+    @Autowired
+    private IdentifierRepository identifierRepository;
+    
+    @Autowired
+    private LinkEvidenceRepository linkEvidenceRepository;
+    
+    @Autowired
+    private IdentifierService identifierService;
+    
+    @Autowired
+    private DataQualityService dataQualityService;
+    
+    @Override
+    public List<AccountHolder> findPotentialLinks(AccountHolder accountHolder) {
+        // Get identifiers for the account holder
+        List<Identifier> identifiers = identifierRepository.findByAccountHolderId(accountHolder.getId());
+        
+        // Skip anomalous or placeholder identifiers
+        List<Identifier> validIdentifiers = identifiers.stream()
+            .filter(identifier -> !dataQualityService.isAnomalous(identifier) && 
+                                 !identifierService.isPlaceholder(identifier))
+            .collect(Collectors.toList());
+        
+        // Find account holders that share these identifiers
+        Set<UUID> potentialLinkIds = new HashSet<>();
+        
+        for (Identifier identifier : validIdentifiers) {
+            // Find all instances of this identifier value
+            List<Identifier> matchingIdentifiers = identifierRepository.findByNormalizedValueAndType(
+                identifier.getNormalizedValue(), 
+                identifier.getType()
+            );
+            
+            // Add their account holder IDs
+            for (Identifier match : matchingIdentifiers) {
+                if (!match.getAccountHolderId().equals(accountHolder.getId())) {
+                    potentialLinkIds.add(match.getAccountHolderId());
+                }
+            }
+        }
+        
+        // Fetch the full account holder records
+        return potentialLinkIds.stream()
+            .map(id -> accountHolderRepository.findById(id).orElse(null))
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+    }
+    
+    @Override
+@Override
+    public float evaluateLinkStrength(AccountHolder source, AccountHolder target) {
+        // Get identifiers for both account holders
+        List<Identifier> sourceIdentifiers = identifierRepository.findByAccountHolderId(source.getId());
+        List<Identifier> targetIdentifiers = identifierRepository.findByAccountHolderId(target.getId());
+        
+        // Group identifiers by normalized value and type
+        Map<String, List<Identifier>> sourceMap = groupIdentifiersByValueAndType(sourceIdentifiers);
+        Map<String, List<Identifier>> targetMap = groupIdentifiersByValueAndType(targetIdentifiers);
+        
+        // Find common identifiers
+        Set<String> commonKeys = new HashSet<>(sourceMap.keySet());
+        commonKeys.retainAll(targetMap.keySet());
+        
+        if (commonKeys.isEmpty()) {
+            return 0.0f; // No common identifiers
+        }
+        
+        // Calculate strength based on identifier tiers and confidence scores
+        float totalStrength = 0.0f;
+        boolean hasTier1Match = false;
+        boolean hasTier2Match = false;
+        int matchCount = 0;
+        
+        for (String key : commonKeys) {
+            Identifier sourceIdentifier = sourceMap.get(key).get(0);
+            Identifier targetIdentifier = targetMap.get(key).get(0);
+            
+            // Skip anomalous or placeholder identifiers
+            if (dataQualityService.isAnomalous(sourceIdentifier) || 
+                identifierService.isPlaceholder(sourceIdentifier)) {
+                continue;
+            }
+            
+            // Calculate match strength based on tier and confidence
+            float matchStrength = calculateMatchStrength(sourceIdentifier, targetIdentifier);
+            totalStrength += matchStrength;
+            matchCount++;
+            
+            // Track if we have strong matches
+            if (sourceIdentifier.getTier() == 1) {
+                hasTier1Match = true;
+            } else if (sourceIdentifier.getTier() == 2) {
+                hasTier2Match = true;
+            }
+        }
+        
+        // If no valid matches after filtering
+        if (matchCount == 0) {
+            return 0.0f;
+        }
+        
+        // Average strength of matches
+        float averageStrength = totalStrength / matchCount;
+        
+        // Boost strength if we have strong identifier matches
+        if (hasTier1Match) {
+            averageStrength = Math.min(1.0f, averageStrength * 1.5f);
+        } else if (hasTier2Match && matchCount >= 2) {
+            averageStrength = Math.min(1.0f, averageStrength * 1.3f);
+        } else if (matchCount == 1) {
+            // Single match should be treated with lower confidence
+            averageStrength *= 0.7f;
+        }
+        
+        return averageStrength;
+    }
+    
+    @Override
+    public List<LinkEvidence> createLinkEvidence(AccountHolder source, AccountHolder target, Identity identity) {
+        // Get identifiers for both account holders
+        List<Identifier> sourceIdentifiers = identifierRepository.findByAccountHolderId(source.getId());
+        List<Identifier> targetIdentifiers = identifierRepository.findByAccountHolderId(target.getId());
+        
+        // Group identifiers by normalized value and type
+        Map<String, List<Identifier>> sourceMap = groupIdentifiersByValueAndType(sourceIdentifiers);
+        Map<String, List<Identifier>> targetMap = groupIdentifiersByValueAndType(targetIdentifiers);
+        
+        // Find common identifiers
+        Set<String> commonKeys = new HashSet<>(sourceMap.keySet());
+        commonKeys.retainAll(targetMap.keySet());
+        
+        List<LinkEvidence> evidence = new ArrayList<>();
+        
+        for (String key : commonKeys) {
+            Identifier sourceIdentifier = sourceMap.get(key).get(0);
+            Identifier targetIdentifier = targetMap.get(key).get(0);
+            
+            // Skip anomalous or placeholder identifiers
+            if (dataQualityService.isAnomalous(sourceIdentifier) || 
+                identifierService.isPlaceholder(sourceIdentifier)) {
+                continue;
+            }
+            
+            // Calculate match strength
+            float strength = calculateMatchStrength(sourceIdentifier, targetIdentifier);
+            
+            // Create link evidence
+            LinkEvidence linkEvidence = LinkEvidence.builder()
+                .sourceAhId(source.getId())
+                .targetAhId(target.getId())
+                .identityId(identity.getId())
+                .identifierId(sourceIdentifier.getId())
+                .operation("LINK")
+                .createdAt(LocalDateTime.now())
+                .strength(strength)
+                .evidenceType(sourceIdentifier.getType().toString())
+                .build();
+            
+            evidence.add(linkEvidence);
+        }
+        
+        return evidence;
+    }
+    
+    @Override
+    public boolean shouldMerge(AccountHolder source, AccountHolder target) {
+        float linkStrength = evaluateLinkStrength(source, target);
+        
+        // Check if there's at least one Tier 1 identifier match
+        boolean hasTier1Match = hasSharedIdentifierOfTier(source, target, 1);
+        
+        // High confidence merge if strong link and Tier 1 match
+        if (linkStrength >= 0.8f && hasTier1Match) {
+            return true;
+        }
+        
+        // Medium confidence merge if strong link and multiple Tier 2 matches
+        boolean hasMultipleTier2Matches = countSharedIdentifiersOfTier(source, target, 2) >= 2;
+        if (linkStrength >= 0.7f && hasMultipleTier2Matches) {
+            return true;
+        }
+        
+        // Consider other combinations of Tier 2 and Tier 3
+        boolean hasStrongTier2Match = hasSharedIdentifierOfTier(source, target, 2);
+        int tier3MatchCount = countSharedIdentifiersOfTier(source, target, 3);
+        
+        if (linkStrength >= 0.65f && hasStrongTier2Match && tier3MatchCount >= 2) {
+            return true;
+        }
+        
+        // Default to conservative approach
+        return false;
+    }
+    
+    @Override
+    public boolean shouldTransfer(AccountHolder source, Identity sourceIdentity, Identity targetIdentity) {
+        // Get account holders in target identity
+        List<AccountHolder> targetIdentityAccountHolders = accountHolderRepository.findByIdentityId(targetIdentity.getId());
+        
+        // Check link strength with account holders in target identity
+        List<Float> linkStrengths = new ArrayList<>();
+        for (AccountHolder targetAh : targetIdentityAccountHolders) {
+            float strength = evaluateLinkStrength(source, targetAh);
+            linkStrengths.add(strength);
+        }
+        
+        // Calculate average link strength to target identity
+        float avgStrengthToTarget = linkStrengths.stream()
+            .reduce(0.0f, Float::sum) / Math.max(1, linkStrengths.size());
+        
+        // Get account holders in source identity
+        List<AccountHolder> sourceIdentityAccountHolders = accountHolderRepository.findByIdentityId(sourceIdentity.getId());
+        
+        // Check link strength with account holders in source identity
+        List<Float> sourceStrengths = new ArrayList<>();
+        for (AccountHolder sourceAh : sourceIdentityAccountHolders) {
+            if (!sourceAh.getId().equals(source.getId())) { // Skip self
+                float strength = evaluateLinkStrength(source, sourceAh);
+                sourceStrengths.add(strength);
+            }
+        }
+        
+        // Calculate average link strength to source identity
+        float avgStrengthToSource = sourceStrengths.stream()
+            .reduce(0.0f, Float::sum) / Math.max(1, sourceStrengths.size());
+        
+        // Transfer if link to target is significantly stronger
+        return avgStrengthToTarget > avgStrengthToSource * 1.5f;
+    }
+    
+    // Helper methods
+    private Map<String, List<Identifier>> groupIdentifiersByValueAndType(List<Identifier> identifiers) {
+        Map<String, List<Identifier>> map = new HashMap<>();
+        
+        for (Identifier identifier : identifiers) {
+            String key = identifier.getType() + ":" + identifier.getNormalizedValue();
+            map.computeIfAbsent(key, k -> new ArrayList<>()).add(identifier);
+        }
+        
+        return map;
+    }
+    
+    private float calculateMatchStrength(Identifier source, Identifier target) {
+        // Base strength on tier
+        float baseStrength = 0.0f;
+        switch (source.getTier()) {
+            case 1: baseStrength = 0.9f; break;
+            case 2: baseStrength = 0.7f; break;
+            case 3: baseStrength = 0.5f; break;
+            case 4: baseStrength = 0.3f; break;
+            default: baseStrength = 0.4f;
+        }
+        
+        // Adjust by confidence scores
+        float confidenceAdjustment = (source.getConfidenceScore() + target.getConfidenceScore()) / 2.0f;
+        
+        // Additional adjustments based on identifier type
+        float typeAdjustment = 1.0f;
+        switch (source.getType()) {
+            case TAX_ID:
+            case BANK_ACCOUNT:
+            case GOVERNMENT_ID:
+                typeAdjustment = 1.2f; // Boost for highly reliable types
+                break;
+            case EMAIL:
+            case PHONE:
+                // Check if these are disposable or temporary
+                if (isDisposableOrTemporary(source)) {
+                    typeAdjustment = 0.8f;
+                }
+                break;
+            case IP_ADDRESS:
+            case PARTIAL_NAME:
+                typeAdjustment = 0.7f; // Reduce for weak identifiers
+                break;
+        }
+        
+        return Math.min(1.0f, baseStrength * confidenceAdjustment * typeAdjustment);
+    }
+    
+    private boolean isDisposableOrTemporary(Identifier identifier) {
+        // Check if email is from disposable domain
+        if (identifier.getType() == IdentifierType.EMAIL) {
+            String email = identifier.getValue();
+            String domain = email.substring(email.indexOf('@') + 1).toLowerCase();
+            
+            // List of known disposable email domains
+            String[] disposableDomains = {"tempmail.com", "guerrillamail.com", "mailinator.com", "temp-mail.org"};
+            
+            for (String disposableDomain : disposableDomains) {
+                if (domain.equals(disposableDomain)) {
+                    return true;
+                }
+            }
+        }
+        
+        // Check if phone appears to be temporary/burner
+        if (identifier.getType() == IdentifierType.PHONE) {
+            // Implementation would check against known VOIP or temporary number patterns
+            // This is a placeholder for that logic
+            return false;
+        }
+        
+        return false;
+    }
+    
+    private boolean hasSharedIdentifierOfTier(AccountHolder source, AccountHolder target, int tier) {
+        // Get identifiers for both account holders
+        List<Identifier> sourceIdentifiers = identifierRepository.findByAccountHolderIdAndTier(source.getId(), tier);
+        List<Identifier> targetIdentifiers = identifierRepository.findByAccountHolderIdAndTier(target.getId(), tier);
+        
+        // Convert to maps for easy comparison
+        Map<String, Identifier> sourceMap = sourceIdentifiers.stream()
+            .collect(Collectors.toMap(
+                id -> id.getType() + ":" + id.getNormalizedValue(),
+                id -> id,
+                (id1, id2) -> id1
+            ));
+        
+        // Look for matches
+        for (Identifier targetId : targetIdentifiers) {
+            String key = targetId.getType() + ":" + targetId.getNormalizedValue();
+            if (sourceMap.containsKey(key)) {
+                Identifier sourceId = sourceMap.get(key);
+                
+                // Skip anomalous or placeholder identifiers
+                if (!dataQualityService.isAnomalous(sourceId) && 
+                    !identifierService.isPlaceholder(sourceId)) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    private int countSharedIdentifiersOfTier(AccountHolder source, AccountHolder target, int tier) {
+        // Get identifiers for both account holders
+        List<Identifier> sourceIdentifiers = identifierRepository.findByAccountHolderIdAndTier(source.getId(), tier);
+        List<Identifier> targetIdentifiers = identifierRepository.findByAccountHolderIdAndTier(target.getId(), tier);
+        
+        // Convert to maps for easy comparison
+        Map<String, Identifier> sourceMap = sourceIdentifiers.stream()
+            .collect(Collectors.toMap(
+                id -> id.getType() + ":" + id.getNormalizedValue(),
+                id -> id,
+                (id1, id2) -> id1
+            ));
+        
+        // Count matches
+        int matchCount = 0;
+        for (Identifier targetId : targetIdentifiers) {
+            String key = targetId.getType() + ":" + targetId.getNormalizedValue();
+            if (sourceMap.containsKey(key)) {
+                Identifier sourceId = sourceMap.get(key);
+                
+                // Skip anomalous or placeholder identifiers
+                if (!dataQualityService.isAnomalous(sourceId) && 
+                    !identifierService.isPlaceholder(sourceId)) {
+                    matchCount++;
+                }
+            }
+        }
+        
+        return matchCount;
+    }
+}
+
+package com.identity.model;
+
+import lombok.Data;
+import lombok.Builder;
+
+import javax.persistence.*;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Data
+@Builder
+@Entity
+@Table(name = "link_evidence")
+public class LinkEvidence {
+    @Id
+    @GeneratedValue
+    private UUID id;
+    
+    @Column(name = "source_ah_id")
+    private UUID sourceAhId;
+    
+    @Column(name = "target_ah_id")
+    private UUID targetAhId;
+    
+    @Column(name = "identity_id")
+    private UUID identityId;
+    
+    @Column(name = "identifier_id")
+    private UUID identifierId;
+    
+    @Column(name = "operation")
+    private String operation;
+    
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+    
+    @Column(name = "strength")
+    private float strength;
+    
+    @Column(name = "evidence_type")
+    private String evidenceType;
+}
+
+package com.identity.repository;
+
+import com.identity.model.LinkEvidence;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public interface LinkEvidenceRepository extends JpaRepository<LinkEvidence, UUID> {
+    List<LinkEvidence> findByIdentityId(UUID identityId);
+    List<LinkEvidence> findBySourceAhIdOrTargetAhId(UUID sourceAhId, UUID targetAhId);
+}
+
+
+package com.identity.model;
+
+import lombok.Data;
+import lombok.Builder;
+
+import javax.persistence.*;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Data
+@Builder
+@Entity
+@Table(name = "identity")
+public class Identity {
+    @Id
+    @GeneratedValue
+    private UUID id;
+    
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+    
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+    
+    @Column(name = "size")
+    private int size;
+    
+    @Column(name = "active")
+    private boolean active;
+}
+
+@Data
+@Builder
+@Entity
+@Table(name = "account_holder")
+public class AccountHolder {
+    @Id
+    @GeneratedValue
+    private UUID id;
+    
+    @Column(name = "identity_id")
+    private UUID identityId;
+    
+    @Column(name = "external_id")
+    private String externalId;
+    
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+    
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+    
+    @Column(name = "active")
+    private boolean active;
+}
+
+@Data
+@Builder
+@Entity
+@Table(name = "identity_history")
+public class IdentityHistory {
+    @Id
+    @GeneratedValue
+    private UUID id;
+    
+    @Column(name = "identity_id")
+    private UUID identityId;
+    
+    @Column(name = "operation")
+    private String operation;
+    
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+    
+    @Column(name = "details")
+    private String details;
+    
+    @Column(name = "performed_by")
+    private UUID performedBy;
+}
+
+package com.identity.service;
+
+import com.identity.model.AccountHolder;
+import com.identity.model.Identity;
+import com.identity.model.LinkEvidence;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+public interface IdentityService {
+    Identity createIdentity(AccountHolder accountHolder);
+    Identity findIdentity(UUID identityId);
+    List<AccountHolder> getIdentityMembers(UUID identityId);
+    Identity mergeIdentities(UUID sourceIdentityId, UUID targetIdentityId);
+    Identity transferAccountHolder(UUID accountHolderId, UUID targetIdentityId);
+    Map<String, Object> getIdentityGraph(UUID identityId);
+    List<LinkEvidence> getLinkageEvidence(UUID sourceAccountHolderId, UUID targetAccountHolderId);
+    Identity splitIdentity(UUID identityId, List<UUID> accountHolderIds);
+    void trackIdentityHistory(UUID identityId, String operation, String details, UUID performedBy);
+}
+
+package com.identity.service.impl;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.identity.model.*;
+import com.identity.repository.*;
+import com.identity.service.IdentityService;
+import com.identity.service.LinkingEngine;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+public class IdentityServiceImpl implements IdentityService {
+    
+    @Autowired
+    private IdentityRepository identityRepository;
+    
+    @Autowired
+    private AccountHolderRepository accountHolderRepository;
+    
+    @Autowired
+    private IdentifierRepository identifierRepository;
+    
+    @Autowired
+    private LinkEvidenceRepository linkEvidenceRepository;
+    
+    @Autowired
+    private IdentityHistoryRepository identityHistoryRepository;
+    
+    @Autowired
+    private LinkingEngine linkingEngine;
+    
+    @Autowired
+    private ObjectMapper objectMapper;
+    
+    @Override
+    @Transactional
+    public Identity createIdentity(AccountHolder accountHolder) {
+        // Create a new identity
+        Identity identity = Identity.builder()
+            .createdAt(LocalDateTime.now())
+            .updatedAt(LocalDateTime.now())
+            .size(1)
+            .active(true)
+            .build();
+        
+        Identity savedIdentity = identityRepository.save(identity);
+        
+        // Update account holder with identity ID
+        accountHolder.setIdentityId(savedIdentity.getId());
+        accountHolderRepository.save(accountHolder);
+        
+        // Track history
+        trackIdentityHistory(
+            savedIdentity.getId(),
+            "CREATE",
+            "Created new identity with account holder " + accountHolder.getExternalId(),
+            null
+        );
+        
+        return savedIdentity;
+    }
+    
+    @Override
+    public Identity findIdentity(UUID identityId) {
+        return identityRepository.findById(identityId).orElse(null);
+    }
+    
+    @Override
+    public List<AccountHolder> getIdentityMembers(UUID identityId) {
+        return accountHolderRepository.findByIdentityId(identityId);
+    }
+    
+    @Override
+    @Transactional
+    public Identity mergeIdentities(UUID sourceIdentityId, UUID targetIdentityId) {
+        Identity sourceIdentity = identityRepository.findById(sourceIdentityId)
+            .orElseThrow(() -> new IllegalArgumentException("Source identity not found"));
+        
+        Identity targetIdentity = identityRepository.findById(targetIdentityId)
+            .orElseThrow(() -> new IllegalArgumentException("Target identity not found"));
+        
+        // Get account holders from source identity
+        List<AccountHolder> sourceAccountHolders = accountHolderRepository.findByIdentityId(sourceIdentityId);
+        
+        // Get account holders from target identity
+        List<AccountHolder> targetAccountHolders = accountHolderRepository.findByIdentityId(targetIdentityId);
+        
+        // Check if merge is valid (based on linking engine rules)
+        boolean canMerge = validateMerge(sourceAccountHolders, targetAccountHolders);
+        
+        if (!canMerge) {
+            throw new IllegalStateException("Cannot merge identities: insufficient link strength");
+        }
+        
+        // Prepare history tracking
+        StringBuilder historyDetails = new StringBuilder();
+        historyDetails.append("Merged identity ").append(sourceIdentityId)
+            .append(" (size ").append(sourceIdentity.getSize())
+            .append(") into identity ").append(targetIdentityId)
+            .append(" (size ").append(targetIdentity.getSize()).append(")");
+        
+        // Move all account holders from source to target
+        for (AccountHolder accountHolder : sourceAccountHolders) {
+            // Update identity reference
+            accountHolder.setIdentityId(targetIdentityId);
+            accountHolderRepository.save(accountHolder);
+            
+            // Create link evidence between this account holder and target account holders
+            for (AccountHolder targetAh : targetAccountHolders) {
+                List<LinkEvidence> evidences = linkingEngine.createLinkEvidence(
+                    accountHolder, 
+                    targetAh, 
+                    targetIdentity
+                );
+                
+                linkEvidenceRepository.saveAll(evidences);
+            }
+        }
+        
+        // Update target identity size
+        targetIdentity.setSize(targetIdentity.getSize() + sourceIdentity.getSize());
+        targetIdentity.setUpdatedAt(LocalDateTime.now());
+        identityRepository.save(targetIdentity);
+        
+        // Deactivate source identity
+        sourceIdentity.setActive(false);
+        sourceIdentity.setUpdatedAt(LocalDateTime.now());
+        identityRepository.save(sourceIdentity);
+        
+        // Track history for both identities
+        trackIdentityHistory(
+            targetIdentity.getId(),
+            "MERGE_TARGET",
+            historyDetails.toString(),
+            null
+        );
+        
+        trackIdentityHistory(
+            sourceIdentity.getId(),
+            "MERGE_SOURCE",
+            "This identity was merged into identity " + targetIdentityId,
+            null
+        );
+        
+        return targetIdentity;
+    }
+    
+    @Override
+    @Transactional
+    public Identity transferAccountHolder(UUID accountHolderId, UUID targetIdentityId) {
+        AccountHolder accountHolder = accountHolderRepository.findById(accountHolderId)
+            .orElseThrow(() -> new IllegalArgumentException("Account holder not found"));
+        
+        UUID sourceIdentityId = accountHolder.getIdentityId();
+        
+        if (sourceIdentityId.equals(targetIdentityId)) {
+            throw new IllegalArgumentException("Account holder already belongs to target identity");
+        }
+        
+        Identity sourceIdentity = identityRepository.findById(sourceIdentityId)
+            .orElseThrow(() -> new IllegalArgumentException("Source identity not found"));
+        
+        Identity targetIdentity = identityRepository.findById(targetIdentityId)
+            .orElseThrow(() -> new IllegalArgumentException("Target identity not found"));
+        
+        // Check if transfer is valid (based on linking engine rules)
+        boolean canTransfer = linkingEngine.shouldTransfer(accountHolder, sourceIdentity, targetIdentity);
+        
+        if (!canTransfer) {
+            throw new IllegalStateException("Cannot transfer account holder: insufficient link strength to target");
+        }
+        
+        // Prepare history tracking
+        String historyDetails = "Transferred account holder " + accountHolder.getExternalId() + 
+            " from identity " + sourceIdentityId + " to identity " + targetIdentityId;
+        
+        // Get account holders from target identity
+        List<AccountHolder> targetAccountHolders = accountHolderRepository.findByIdentityId(targetIdentityId);
+        
+        // Move account holder to target identity
+        accountHolder.setIdentityId(targetIdentityId);
+        accountHolder.setUpdatedAt(LocalDateTime.now());
+        accountHolderRepository.save(accountHolder);
+        
+        // Create link evidence between this account holder and target account holders
+        for (AccountHolder targetAh : targetAccountHolders) {
+            List<LinkEvidence> evidences = linkingEngine.createLinkEvidence(
+                accountHolder, 
+                targetAh, 
+                targetIdentity
+            );
+            
+            linkEvidenceRepository.saveAll(evidences);
+        }
+        
+        // Update sizes
+        sourceIdentity.setSize(sourceIdentity.getSize() - 1);
+        sourceIdentity.setUpdatedAt(LocalDateTime.now());
+        identityRepository.save(sourceIdentity);
+        
+        targetIdentity.setSize(targetIdentity.getSize() + 1);
+        targetIdentity.setUpdatedAt(LocalDateTime.now());
+        identityRepository.save(targetIdentity);
+        
+        // Track history for both identities
+        trackIdentityHistory(
+            targetIdentity.getId(),
+            "TRANSFER_TARGET",
+            historyDetails,
+            null
+        );
+        
+        trackIdentityHistory(
+            sourceIdentity.getId(),
+            "TRANSFER_SOURCE",
+            historyDetails,
+            null
+        );
+        
+        return targetIdentity;
+    }
+    
+    @Override
+    public Map<String, Object> getIdentityGraph(UUID identityId) {
+        Identity identity = identityRepository.findById(identityId)
+            .orElseThrow(() -> new IllegalArgumentException("Identity not found"));
+        
+        // Get all account holders in this identity
+        List<AccountHolder> accountHolders = accountHolderRepository.findByIdentityId(identityId);
+        
+        // Build the graph
+        Map<String, Object> graph = new HashMap<>();
+        
+        // Add identity info
+        Map<String, Object> identityInfo = new HashMap<>();
+        identityInfo.put("id", identity.getId().toString());
+        identityInfo.put("size", identity.getSize());
+        identityInfo.put("createdAt", identity.getCreatedAt().toString());
+        identityInfo.put("updatedAt", identity.getUpdatedAt().toString());
+        
+        graph.put("identity", identityInfo);
+        
+        // Add account holders
+        List<Map<String, Object>> accountHoldersList = new ArrayList<>();
+        
+        for (AccountHolder ah : accountHolders) {
+            Map<String, Object> ahInfo = new HashMap<>();
+            ahInfo.put("id", ah.getId().toString());
+            ahInfo.put("externalId", ah.getExternalId());
+            
+            // Get identifiers for this account holder
+            List<Identifier> identifiers = identifierRepository.findByAccountHolderId(ah.getId());
+            
+            List<Map<String, Object>> identifiersList = new ArrayList<>();
+            for (Identifier identifier : identifiers) {
+                Map<String, Object> idInfo = new HashMap<>();
+                idInfo.put("id", identifier.getId().toString());
+                idInfo.put("type", identifier.getType().toString());
+                idInfo.put("value", identifier.getValue());
+                idInfo.put("tier", identifier.getTier());
+                idInfo.put("confidenceScore", identifier.getConfidenceScore());
+                
+                identifiersList.add(idInfo);
+            }
+            
+            ahInfo.put("identifiers", identifiersList);
+            accountHoldersList.add(ahInfo);
+        }
+        
+        graph.put("accountHolders", accountHoldersList);
+        
+        // Add link evidence
+        List<Map<String, Object>> evidenceList = new ArrayList<>();
+        
+        for (AccountHolder source : accountHolders) {
+            for (AccountHolder target : accountHolders) {
+                if (!source.getId().equals(target.getId())) {
+                    List<LinkEvidence> linkEvidences = linkEvidenceRepository.findBySourceAhIdOrTargetAhId(
+                        source.getId(), 
+                        target.getId()
+                    );
+                    
+                    for (LinkEvidence evidence : linkEvidences) {
+                        Map<String, Object> evidenceInfo = new HashMap<>();
+                        evidenceInfo.put("id", evidence.getId().toString());
+                        evidenceInfo.put("sourceId", evidence.getSourceAhId().toString());
+                        evidenceInfo.put("targetId", evidence.getTargetAhId().toString());
+                        evidenceInfo.put("identifierId", evidence.getIdentifierId().toString());
+                        evidenceInfo.put("strength", evidence.getStrength());
+                        evidenceInfo.put("type", evidence.getEvidenceType());
+                        evidenceInfo.put("createdAt", evidence.getCreatedAt().toString());
+                        
+                        evidenceList.add(evidenceInfo);
+                    }
+                }
+            }
+        }
+        
+        graph.put("linkEvidence", evidenceList);
+        
+        // Add identity history
+        List<IdentityHistory> history = identityHistoryRepository.findByIdentityIdOrderByCreatedAtDesc(identityId);
+        
+        List<Map<String, Object>> historyList = new ArrayList<>();
+        for (IdentityHistory entry : history) {
+            Map<String, Object> historyInfo = new HashMap<>();
+            historyInfo.put("id", entry.getId().toString());
+            historyInfo.put("operation", entry.getOperation());
+            historyInfo.put("details", entry.getDetails());
+            historyInfo.put("createdAt", entry.getCreatedAt().toString());
+            
+            historyList.add(historyInfo);
+        }
+        
+        graph.put("history", historyList);
+        
+        return graph;
+    }
+    
+    @Override
+    public List<LinkEvidence> getLinkageEvidence(UUID sourceAccountHolderId, UUID targetAccountHolderId) {
+        return linkEvidenceRepository.findBySourceAhIdOrTargetAhId(
+            sourceAccountHolderId, 
+            targetAccountHolderId
+        );
+    }
+    
+    @Override
+    @Transactional
+    public Identity splitIdentity(UUID identityId, List<UUID> accountHolderIds) {
+        // Validate inputs
+        Identity originalIdentity = identityRepository.findById(identityId)
+            .orElseThrow(() -> new IllegalArgumentException("Identity not found"));
+        
+        List<AccountHolder> accountHolders = accountHolderRepository.findAllById(accountHolderIds);
+        
+        if (accountHolders.isEmpty()) {
+            throw new IllegalArgumentException("No valid account holders provided");
+        }
+        
+        // Check if all account holders belong to the same identity
+        boolean allFromSameIdentity = accountHolders.stream()
+            .allMatch(ah -> ah.getIdentityId().equals(identityId));
+        
+        if (!allFromSameIdentity) {
+            throw new IllegalArgumentException("All account holders must belong to the same identity");
+        }
+        
+        // Create new identity for the split
+        Identity newIdentity = Identity.builder()
+            .createdAt(LocalDateTime.now())
+            .updatedAt(LocalDateTime.now())
+
+
+
+
+
+
+
+==================================
+
+
+-- account_holder (AH)
+CREATE TABLE account_holder (
+   ah_id              BIGSERIAL PRIMARY KEY,
+   external_ref       VARCHAR(64) NOT NULL,
+   created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   -- … other profile columns
+);
+
+-- identifier (email, phone, tax_id …)
+CREATE TABLE identifier (
+   identifier_id      BIGSERIAL PRIMARY KEY,
+   ah_id              BIGINT NOT NULL REFERENCES account_holder(ah_id),
+   id_type            VARCHAR(32) NOT NULL,
+   id_value           VARCHAR(256) NOT NULL,
+   tier               SMALLINT   NOT NULL,                  -- 1–4
+   valid              BOOLEAN NOT NULL DEFAULT TRUE,
+   quality_score      NUMERIC(3,2),                         -- 0‑1
+   inserted_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   UNIQUE(id_type, id_value)                                -- quick look‑up
+);
+
+-- logical_entity (identity / LE)
+CREATE TABLE logical_entity (
+   le_id              BIGSERIAL PRIMARY KEY,
+   size               INTEGER      NOT NULL DEFAULT 1,
+   created_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   status             VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE'          -- ACTIVE | SPLIT | MERGED
+);
+
+-- link between AH and LE (many‑to‑1)
+CREATE TABLE ah_le_link (
+   ah_id     BIGINT NOT NULL REFERENCES account_holder(ah_id),
+   le_id     BIGINT NOT NULL REFERENCES logical_entity(le_id),
+   PRIMARY KEY (ah_id)   -- each AH belongs to one LE at a time
+);
+
+-- evidence for each link or merge decision
+CREATE TABLE link_evidence (
+   evidence_id  BIGSERIAL PRIMARY KEY,
+   source_ah_id BIGINT,
+   target_ah_id BIGINT,
+   rule_name    VARCHAR(64) NOT NULL,
+   strength     NUMERIC(3,2) NOT NULL,
+   snapshot     JSONB        NOT NULL,  -- identifiers, timestamps etc
+   created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- blacklist/dynamic placeholder registry
+CREATE TABLE identifier_blacklist (
+   id_type     VARCHAR(32) NOT NULL,
+   id_value    VARCHAR(256) NOT NULL,
+   reason      VARCHAR(256),
+   detected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   PRIMARY KEY(id_type, id_value)
+);
+
+
+// IdentifierTier.java
+public enum IdentifierTier {
+    TIER_1, TIER_2, TIER_3, TIER_4;
+}
+
+// ----------- Domain Aggregates -------------
+@Value @Builder
+public class Identifier {
+    Long id;
+    Long ahId;
+    IdentifierType type;
+    String value;
+    IdentifierTier tier;
+    boolean valid;
+    BigDecimal qualityScore;
+}
+
+@Value @Builder
+public class AccountHolder {
+    Long ahId;
+    String externalRef;
+    List<Identifier> identifiers;
+}
+
+@Value @Builder
+public class LogicalEntity {
+    Long leId;
+    int size;
+    List<AccountHolder> members;
+}
+
+
+
+// validator.IdentifierValidator
+public interface IdentifierValidator {
+    ValidationResult validate(IdentifierRaw raw);
+}
+
+// example
+public class EmailValidator implements IdentifierValidator {
+   public ValidationResult validate(IdentifierRaw raw) {
+       // regex, MX lookup etc.
+   }
+}
+
+// TierClassifier
+public interface TierClassifier {
+    IdentifierTier classify(Identifier id);
+}
+
+// rule engine
+public interface LinkingRule {
+    boolean match(AccountHolder a, AccountHolder b);
+    BigDecimal strength(AccountHolder a, AccountHolder b);
+    String name();
+}
+
+@Service
+public class RuleEngine {
+    private final List<LinkingRule> rules;
+
+    public Optional<LinkDecision> decide(AccountHolder a, AccountHolder b) {
+        return rules.stream()
+              .map(r -> r.match(a,b) ? new LinkDecision(r.name(), r.strength(a,b)) : null)
+              .filter(Objects::nonNull)
+              .max(Comparator.comparing(LinkDecision::strength));
+    }
+}
+
+// MergeService
+@Transactional
+public class MergeService {
+    public LogicalEntity mergeIfStrong(AccountHolder a, AccountHolder b, LinkDecision dec) {
+        // lock ordering, move or merge, record LinkEvidence
+    }
+}
+
+
+=========================
+
+
+public interface Normalizer {
+    Optional<String> normalize(IdentifierType type, String rawValue);
+}
+
+public interface Validator {
+    boolean isValid(IdentifierType type, String normalizedValue);
+}
+
+public interface TierClassifier {
+    int classify(IdentifierType type, String normalizedValue);
+}
+
+public interface ExclusionService {
+    boolean exclude(IdentifierType type, String normalizedValue);
+}
+
+public interface LinkingRule {
+    boolean canLink(Set<Identifier> a, Set<Identifier> b);
+    String getRuleName();
+}
+
+public interface MergeStrategy {
+    LogicalEntity merge(LogicalEntity a, LogicalEntity b, Set<Identifier> common);
+}
+
+public interface MoveStrategy {
+    void move(AccountHolder ah, LogicalEntity from, LogicalEntity to);
+}
+
+public interface IdentityService {
+    LinkResult linkAccountHolder(Long ahId);
+    LogicalEntity getIdentity(Long id);
+    void backfillStrongIds();
+}
+
+
+
+
+Implementations
+NormalizerChain wires multiple Normalizer steps (e.g. EmailNormalizer, PhoneNormalizer).
+
+ValidationChain wires RegexValidator, ChecksumValidator.
+
+TierClassifierImpl holds a map <IdentifierType → Tier> and thresholds.
+
+LinkingRuleEngineImpl loops through registered LinkingRules (e.g. Tier1Rule, Tier23ComboRule).
+
+MergeStrategyImpl collects common identifiers, creates new LE, emits LinkEvidence.
+
+MoveStrategyImpl removes AH from old LE, adds to the new one (and records evidence).
+
+
+
+
+@Service
+public class IdentityServiceImpl implements IdentityService {
+ 
+    @Autowired private AccountHolderRepo ahRepo;
+    @Autowired private IdentifierRepo idRepo;
+    @Autowired private LogicalEntityRepo leRepo;
+    @Autowired private List<Normalizer> normalizers;
+    @Autowired private List<Validator> validators;
+    @Autowired private TierClassifier tierClassifier;
+    @Autowired private ExclusionService exclusionService;
+    @Autowired private List<LinkingRule> linkingRules;
+    @Autowired private MergeStrategy mergeStrategy;
+    @Autowired private MoveStrategy moveStrategy;
+ 
+    @Transactional
+    public LinkResult linkAccountHolder(Long ahId) {
+        AccountHolder ah = ahRepo.findById(ahId).orElseThrow();
+        // normalize & validate & classify & filter
+        Set<Identifier> cleaned = ah.getIdentifiers().stream()
+          .map(id -> processIdentifier(id))
+          .filter(Objects::nonNull)
+          .collect(toSet());
+ 
+        // find candidate LEs by querying idRepo for matching normalizedValue
+        Set<LogicalEntity> candidates = findCandidateEntities(cleaned);
+        for (LogicalEntity le : candidates) {
+            for (LinkingRule rule : linkingRules) {
+              if (rule.canLink(cleaned, le.getAllIdentifiers())) {
+                // either merge or move
+                if (belongsTo(le, ah)) {
+                  moveStrategy.move(ah, findCurrentLE(ah), le);
+                } else {
+                  mergeStrategy.merge(findCurrentLE(ah), le, findCommon(cleaned, le));
+                }
+                return buildResult(ah, le, rule.getRuleName());
+              }
+            }
+        }
+        // no link → create new LE
+        LogicalEntity newLe = new LogicalEntity(Set.of(ah));
+        leRepo.save(newLe);
+        return LinkResult.ofNew(newLe.getId());
+    }
+ 
+    // ... additional helper methods ...
+}
+
+
